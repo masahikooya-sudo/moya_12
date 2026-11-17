@@ -143,6 +143,7 @@ const CONFIG = {
   bank2: ["みずほ銀行", "十五号支店", "普通 4423368"],
   taxCodes: { A3: 10 },            // 税区分コード → 税率(%)
   invoiceNo: d => yymmdd(d) + "13" + pad2(state.serial) + "69",   // yymmdd13**69
+  sortKeywords: ["短期", "長期", "月額基本料金"],   // 商品名にこの語を含む順に並べる（該当なしは末尾・Excelの行順）
   rowsPerPage: 27,
 };
 
@@ -282,6 +283,8 @@ function buildInvoice(rows) {
     });
   }
   if (!lines.length) throw new Error("明細行がありません。");
+  const rank = l => { const i = CONFIG.sortKeywords.findIndex(k => l.name.includes(k)); return i < 0 ? CONFIG.sortKeywords.length : i; };
+  lines.sort((x, y) => rank(x) - rank(y));   // 同順位はExcelの行順を維持
 
   const ym = lines[0].ym;
   if (lines.some(l => l.ym.y !== ym.y || l.ym.m !== ym.m)) warnings.push("計上年月が異なる明細が混在しています。お支払予定日は1行目の計上年月（" + ym.y + "/" + pad2(ym.m) + "）の翌月末としています。");
