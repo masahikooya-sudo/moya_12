@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIXIL向け請求書作成</title>
+<style>
+  :root { --mincho: "MS Mincho", "ＭＳ 明朝", "MS PMincho", "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "Noto Serif CJK JP", "IPAMincho", serif;
+          --gothic: "MS PGothic", "ＭＳ Ｐゴシック", "Yu Gothic", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "IPAGothic", sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #e9ecef; color: #111; font-family: var(--gothic); }
+
+  /* ---------- 操作パネル ---------- */
+  #panel { background: #fff; border-bottom: 1px solid #ccc; padding: 14px 20px; }
+  #panel h1 { font-size: 18px; margin: 0 0 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .field input[type=date], .field input[type=number], .field input[type=text] { font-size: 15px; padding: 4px 6px; }
+  #serial { width: 5em; }
+  #drop { border: 2px dashed #8a94a0; border-radius: 6px; padding: 10px 16px; background: #f7f9fb; cursor: pointer; min-width: 260px; }
+  #drop.over { background: #dceaff; border-color: #2563eb; }
+  #printBtn { font-size: 16px; padding: 8px 22px; background: #2563eb; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+  #printBtn:disabled { background: #9aa4b1; cursor: not-allowed; }
+  #msg { margin-top: 10px; font-size: 13px; white-space: pre-wrap; }
+  #msg.err { color: #b91c1c; font-weight: bold; }
+  #msg.warn { color: #92400e; }
+  details { margin-top: 10px; font-size: 13px; }
+  details .row { margin-top: 8px; }
+  .hint { color: #555; font-size: 12px; }
+  .linkbtn { background: none; border: 0; color: #2563eb; cursor: pointer; padding: 0; font-size: 12px; text-align: left; }
+
+  /* ---------- 請求書（A4横 297mm × 210mm） ---------- */
+  #pages { padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .page { position: relative; width: 297mm; height: 210mm; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+          font-family: var(--mincho); font-size: 10pt; overflow: hidden; flex: none; }
+  .page .abs { position: absolute; white-space: nowrap; }
+  .page table { border-collapse: collapse; table-layout: fixed; }
+  .page th { background: #d9d9d9; font-weight: normal; }
+
+  .buyer-code { left: 6mm; top: 5mm; font-size: 12pt; }
+  .buyer-name { left: 6mm; top: 11mm; font-size: 13pt; font-weight: bold; font-family: var(--gothic); }
+
+  .totals { left: 6mm; top: 18mm; width: 97.5mm; }
+  .totals th, .totals td { border: 0.5mm solid #000; height: 5.1mm; padding: 0 1.5mm; line-height: 1; }
+  .totals th { font-size: 10pt; border-bottom-width: 0.2mm; }
+  .totals td { text-align: right; font-size: 12pt; border-top-width: 0.2mm; }
+  .totals td.none { border: 0; }
+
+  .title { left: 127mm; top: 5.3mm; width: 45mm; height: 7.7mm; border: 0.3mm solid #000; box-shadow: 0.6mm 0.6mm 0 #000;
+           text-align: center; font-size: 18pt; font-weight: bold; line-height: 7.2mm; letter-spacing: 0; word-spacing: 0; }
+  .title span { display: inline-block; width: 14mm; }
+  .issued { left: 127mm; top: 30.5mm; font-size: 12pt; }
+
+  .company { left: 203mm; top: 6.5mm; font-size: 11pt; line-height: 1.1; }
+  .company .addr { font-size: 9.5pt; padding-left: 3.5mm; line-height: 4.1mm; }
+  .company .info { font-size: 9pt; line-height: 3.5mm; margin-top: 0.6mm; }
+  .company .info div { display: flex; }
+  .company .info b { font-weight: normal; width: 21mm; text-align: right; flex: none; }
+  .seal-company { left: 244mm; top: 7mm; width: 17mm; height: 17mm; object-fit: contain; }
+
+  .invno { left: 263.5mm; top: 5mm; width: 27.8mm; }
+  .invno th { border: 0.3mm solid #000; height: 4.6mm; font-size: 10pt; line-height: 1; }
+  .invno td { border: 0.3mm solid #000; border-right-width: 0.6mm; border-bottom-width: 0.6mm; height: 5.8mm; text-align: center; font-size: 10.5pt; line-height: 1; }
+
+  .stampbox { left: 256.5mm; top: 18.5mm; width: 34.8mm; height: 17.5mm; border: 0.3mm solid #000; border-left-width: 0.6mm; border-bottom-width: 0.6mm; }
+  .stampbox::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 0.3mm solid #000; }
+  .seal-person { left: 277.5mm; top: 21.7mm; width: 10mm; height: 10mm; object-fit: contain; }
+
+  .lines { left: 6mm; top: 38.8mm; width: 284mm; }
+  .lines th { border: 0.3mm solid #000; height: 5.2mm; font-size: 9.5pt; line-height: 1; white-space: nowrap; overflow: hidden; }
+  .lines tr.gap td { height: 0.7mm; border: 0; padding: 0; }
+  .lines td { border: 0.2mm solid #000; border-bottom-width: 0.4mm; height: 5.3mm; padding: 0 1mm; font-size: 9.5pt; line-height: 1; white-space: nowrap; overflow: hidden; }
+  .lines td.c { text-align: center; }
+  .lines td.r { text-align: right; }
+  .lines td.amt { text-align: right; font-size: 12pt; }
+  .lines td.sm { font-size: 9pt; }
+  .lines tr td:first-child { border-left-width: 0.4mm; }
+  .lines tr td:last-child { border-right-width: 0.4mm; }
+
+  .footer { left: 6mm; top: 195mm; width: 284mm; height: 9.6mm; border-top: 0.3mm solid #000; border-bottom: 0.3mm solid #000; border-left: 0.3mm solid #000; font-size: 10pt; line-height: 4.5mm; }
+  .footer .abs { top: 0.2mm; }
+  .footer .vline { position: absolute; top: 0; bottom: 0; border-left: 0.3mm solid #000; }
+
+  @page { size: A4 landscape; margin: 0; }
+  @media print {
+    body { background: #fff; }
+    #panel { display: none; }
+    #pages { padding: 0; gap: 0; display: block; }
+    .page { box-shadow: none; height: 209.8mm; break-after: page; page-break-after: always; }
+    .page:last-child { break-after: auto; page-break-after: auto; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>LIXIL向け請求書作成</h1>
+  <div class="row">
+    <div class="field">
+      <span>① 取込みデータ（Excel）</span>
+      <div id="drop">ここにドロップ、またはクリックして選択<br><span id="fileName" class="hint">未選択</span></div>
+      <input type="file" id="file" accept=".xlsx" hidden>
+    </div>
+    <div class="field">
+      <label for="issued">② 作成日</label>
+      <input type="date" id="issued">
+    </div>
+    <div class="field">
+      <label for="serial">③ 連番（00〜99）</label>
+      <input type="number" id="serial" min="0" max="99" step="1">
+      <span class="hint">請求書番号: <span id="invPreview">-</span></span>
+    </div>
+    <button id="printBtn" disabled>④ PDF出力（印刷）</button>
+  </div>
+  <div id="msg"></div>
+  <details>
+    <summary>印影画像の設定（このPCのブラウザに保存されます）</summary>
+    <div class="row">
+      <div class="field"><span>社印（角印）</span><input type="file" id="sealCompany" accept="image/*">
+        <button class="linkbtn" data-clear="sealCompany">削除</button></div>
+      <div class="field"><span>担当印（丸印）</span><input type="file" id="sealPerson" accept="image/*">
+        <button class="linkbtn" data-clear="sealPerson">削除</button></div>
+    </div>
+    <p class="hint">背景が透明のPNGを推奨します。</p>
+  </details>
+  <p class="hint">「PDF出力」を押すと印刷ダイアログが開きます。送信先で「PDFに保存」を選び、用紙A4・横・余白なし・倍率100%で保存してください。データはこのPC内だけで処理され、外部には送信されません。</p>
+</div>
+
+<div id="pages"></div>
+
+<script>
+"use strict";
+
+/* ===================== 固定情報 ===================== */
+const CONFIG = {
+  buyerCode: "83915000",
+  buyerName: "株式会社LIXIL 御中",
+  company: "SB C&S株式会社",
+  address: ["東京都港区海岸１－７－１", "東京ポートシティ竹芝オフィスタワー", "パーチェスワン事業統括部"],
+  info: [["担当営業:", "青木 潤子"], ["電話番号:", "0800-222-4358"], ["FAX番号:", "03-6888-5318"], ["登録番号:", "T9010403011485"]],
+  bank1: ["三菱UFJ銀行", "やまびこ支店", "普通 5741137"],
+  bank2: ["みずほ銀行", "十五号支店", "普通 4423368"],
+  taxCodes: { A3: 10 },            // 税区分コード → 税率(%)
+  invoiceNo: d => yymmdd(d) + "13" + pad2(state.serial) + "69",   // yymmdd13**69
+  rowsPerPage: 27,
+};
+
+/* ===================== ユーティリティ ===================== */
+const $ = id => document.getElementById(id);
+const pad2 = n => String(n).padStart(2, "0");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const yen = n => "¥" + Math.round(n).toLocaleString("ja-JP");
+const yymmdd = d => pad2(d.y % 100) + pad2(d.m) + pad2(d.d);
+const monthEnd = (y, m) => { const dt = new Date(Date.UTC(y, m, 0)); return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() }; };
+const fromSerial = n => { const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000); return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() }; };
+
+/** 「2026/10」「2026-10-31」「202610」やExcel日付シリアル値を {y,m,d} に変換（日が無ければ d は null） */
+function parseDate(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number" && v > 20000 && v < 80000) return fromSerial(v);
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})\D+(\d{1,2})(?:\D+(\d{1,2}))?/) || s.match(/^(\d{4})(\d{2})(\d{2})?$/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = m[3] ? +m[3] : null;
+  if (mo < 1 || mo > 12) return null;
+  return { y, m: mo, d };
+}
+
+/* ===================== xlsx読込（外部ライブラリ不使用） ===================== */
+async function unzip(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("Excelファイル（.xlsx）として読み込めません。");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const files = {}, dec = new TextDecoder("utf-8");
+  for (let i = 0; i < count; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error("Excelファイルが壊れています。");
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), elen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const off = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+    const start = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true);
+    files[name] = { method, data: u8.subarray(start, start + csize) };
+    p += 46 + nlen + elen + clen;
+  }
+  return {
+    has: n => n in files,
+    async text(n) {
+      const f = files[n];
+      if (!f) throw new Error("Excelファイル内に " + n + " がありません。");
+      if (f.method === 0) return dec.decode(f.data);
+      if (f.method !== 8) throw new Error("未対応の圧縮形式です。");
+      const stream = new Blob([f.data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return await new Response(stream).text();
+    },
+  };
+}
+
+const xml = s => new DOMParser().parseFromString(s, "application/xml");
+const kids = (el, name) => Array.from(el.children).filter(c => c.localName === name);
+
+/** ふりがな(rPh)を除いて文字列を取り出す */
+function siText(si) {
+  let out = "";
+  for (const c of si.children) {
+    if (c.localName === "t") out += c.textContent;
+    else if (c.localName === "r") for (const t of kids(c, "t")) out += t.textContent;
+  }
+  return out;
+}
+
+/** 先頭シートを2次元配列で返す */
+async function readXlsx(buf) {
+  const zip = await unzip(buf);
+  const wb = xml(await zip.text("xl/workbook.xml"));
+  const sheet = wb.getElementsByTagNameNS("*", "sheet")[0];
+  if (!sheet) throw new Error("シートが見つかりません。");
+  const rid = sheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || sheet.getAttribute("r:id");
+  const rels = xml(await zip.text("xl/_rels/workbook.xml.rels"));
+  const rel = Array.from(rels.getElementsByTagNameNS("*", "Relationship")).find(r => r.getAttribute("Id") === rid);
+  if (!rel) throw new Error("シートが見つかりません。");
+  const target = rel.getAttribute("Target");
+  const path = target.startsWith("/") ? target.slice(1) : "xl/" + target;
+
+  let shared = [];
+  if (zip.has("xl/sharedStrings.xml"))
+    shared = Array.from(xml(await zip.text("xl/sharedStrings.xml")).getElementsByTagNameNS("*", "si")).map(siText);
+
+  const rows = [];
+  for (const c of xml(await zip.text(path)).getElementsByTagNameNS("*", "c")) {
+    const m = /^([A-Z]+)(\d+)$/.exec(c.getAttribute("r") || "");
+    if (!m) continue;
+    let col = 0; for (const ch of m[1]) col = col * 26 + ch.charCodeAt(0) - 64;
+    const t = c.getAttribute("t"), vEl = kids(c, "v")[0], raw = vEl ? vEl.textContent : null;
+    let val = null;
+    if (t === "inlineStr") { const is = kids(c, "is")[0]; val = is ? siText(is) : ""; }
+    else if (raw == null) continue;
+    else if (t === "s") val = shared[+raw] ?? "";
+    else if (t === "b") val = raw === "1";
+    else if (t === "str" || t === "e") val = raw;
+    else val = Number(raw);
+    (rows[+m[2] - 1] ||= [])[col - 1] = val;
+  }
+  return rows;
+}
+
+/* ===================== 明細の抽出・計算 ===================== */
+function buildInvoice(rows) {
+  const warnings = [];
+  const hi = rows.findIndex(r => r && r.includes("商品名") && r.includes("数量") && r.includes("単価"));
+  if (hi < 0) throw new Error("見出し行（商品名・数量・単価）が見つかりません。取込みデータの形式を確認してください。");
+  const col = {}; rows[hi].forEach((h, i) => { if (typeof h === "string") col[h.trim()] = i; });
+  for (const need of ["バイヤ企業コード_売掛用", "数量", "単価", "計上年月", "税区分", "商品名"])
+    if (!(need in col)) throw new Error("列「" + need + "」が見つかりません。");
+  const get = (r, name) => (name in col ? r[col[name]] : null);
+  const str = v => (v == null ? "" : String(v));
+
+  const lines = [];
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.every(v => v == null || v === "")) continue;
+    const no = i + 1;
+    const code = str(get(r, "バイヤ企業コード_売掛用")).trim();
+    if (code !== CONFIG.buyerCode) throw new Error(no + "行目: バイヤ企業コードが " + CONFIG.buyerCode + " ではありません（" + (code || "空欄") + "）。");
+    const qty = get(r, "数量") ?? 0, price = get(r, "単価");
+    if (typeof qty !== "number" || !isFinite(qty)) throw new Error(no + "行目: 数量が数値ではありません。");
+    if (typeof price !== "number" || !isFinite(price)) throw new Error(no + "行目: 単価が数値ではありません。");
+    const taxCode = str(get(r, "税区分")).trim();
+    if (!(taxCode in CONFIG.taxCodes)) throw new Error(no + "行目: 税区分「" + (taxCode || "空欄") + "」は未対応です（対応: " + Object.keys(CONFIG.taxCodes).join(", ") + "）。");
+    const ym = parseDate(get(r, "計上年月"));
+    if (!ym) throw new Error(no + "行目: 計上年月が読み取れません。");
+    const spec = parseDate(get(r, "日付指定"));
+    const date = spec && spec.d ? spec : monthEnd(ym.y, ym.m);
+    if (get(r, "印刷チェック") === false) warnings.push(no + "行目: 印刷チェックがFALSEですが、出力に含めています。");
+    lines.push({
+      date, ym, qty, price, amount: qty * price, rate: CONFIG.taxCodes[taxCode],
+      name: str(get(r, "商品名")), note: str(get(r, "摘要")), item: str(get(r, "商品コード")),
+      order: str(get(r, "注文NO")), slip: str(get(r, "伝票NO")),
+    });
+  }
+  if (!lines.length) throw new Error("明細行がありません。");
+
+  const ym = lines[0].ym;
+  if (lines.some(l => l.ym.y !== ym.y || l.ym.m !== ym.m)) warnings.push("計上年月が異なる明細が混在しています。お支払予定日は1行目の計上年月（" + ym.y + "/" + pad2(ym.m) + "）の翌月末としています。");
+
+  const base = { 10: 0, 8: 0, 0: 0 };
+  for (const l of lines) base[l.rate] += l.amount;
+  // 消費税は税率ごとの合計に対して計算し、端数は切り上げ（整数演算）
+  const tax = { 10: Math.ceil(Math.round(base[10]) / 10), 8: Math.ceil(Math.round(base[8]) * 8 / 100) };
+  const total = base[10] + base[8] + base[0] + tax[10] + tax[8];
+  const due = monthEnd(ym.y, ym.m + 1);   // 翌月末
+  return { lines, base, tax, total, due, warnings };
+}
+
+/* ===================== 描画 ===================== */
+const state = { invoice: null, issued: null, serial: 0, fileName: "" };
+const seals = { sealCompany: null, sealPerson: null };
+
+function invoiceNo() { return state.issued ? CONFIG.invoiceNo(state.issued) : ""; }
+
+function pageHtml(inv, lines, pageNo, pageCount) {
+  const no = invoiceNo(), d = state.issued, c = CONFIG;
+  const row = l => `<tr>
+      <td class="c">${yymmdd(l.date)}</td><td>${esc(l.slip)}</td><td>${esc(l.order)}</td><td>${esc(l.item)}</td>
+      <td>${esc(l.name)}</td><td class="r">${l.qty === 0 ? "" : esc(l.qty.toLocaleString("ja-JP"))}</td>
+      <td class="c sm">¥${esc(l.price)}</td><td class="amt">${yen(l.amount)}</td><td class="c sm">${l.rate}</td><td>${esc(l.note)}</td></tr>`;
+  return `<div class="page">
+    <div class="abs buyer-code">販社コード： ${c.buyerCode.slice(0, 5)} - ${c.buyerCode.slice(5)}</div>
+    <div class="abs buyer-name">${esc(c.buyerName)}</div>
+    <table class="abs totals">
+      <colgroup><col style="width:36.2%"><col style="width:27.9%"><col style="width:35.9%"></colgroup>
+      <tr><th>請求額(10%)</th><th>請求額(8%)</th><th>請求額(0%)</th></tr>
+      <tr><td>${yen(inv.base[10])}</td><td>${yen(inv.base[8])}</td><td>${yen(inv.base[0])}</td></tr>
+      <tr><th>消費税(10%)</th><th>消費税(8%)</th><th>合計請求額(税込)</th></tr>
+      <tr><td>${yen(inv.tax[10])}</td><td>${yen(inv.tax[8])}</td><td>${yen(inv.total)}</td></tr>
+    </table>
+    <div class="abs title"><span>請</span><span>求</span><span>書</span></div>
+    <div class="abs issued">作成日： ${d.y}年${d.m}月${d.d}日</div>
+    <div class="abs company">${esc(c.company)}
+      <div class="addr">${c.address.map(a => `<div>${esc(a)}</div>`).join("")}</div>
+      <div class="info">${c.info.map(([k, v]) => `<div><b>${esc(k)}</b>&nbsp;${esc(v)}</div>`).join("")}</div>
+    </div>
+    ${seals.sealCompany ? `<img class="abs seal-company" src="${esc(seals.sealCompany)}" alt="">` : ""}
+    <table class="abs invno"><tr><th>請求書番号</th></tr><tr><td>${no}</td></tr></table>
+    <div class="abs stampbox"></div>
+    ${seals.sealPerson ? `<img class="abs seal-person" src="${esc(seals.sealPerson)}" alt="">` : ""}
+    <table class="abs lines">
+      <colgroup><col style="width:4.6%"><col style="width:4.6%"><col style="width:11.4%"><col style="width:7.2%"><col style="width:33.5%">
+        <col style="width:4.1%"><col style="width:7.1%"><col style="width:8.1%"><col style="width:4.6%"><col style="width:14.8%"></colgroup>
+      <tr><th>日 付</th><th>伝票NO</th><th>注文NO</th><th>商品コード</th><th>商　　　　品　　　　名</th><th>数量</th><th>単 価</th><th>金 額</th><th>税区分</th><th>摘　　　要</th></tr>
+      <tr class="gap"><td colspan="10"></td></tr>
+      ${lines.map(row).join("")}
+    </table>
+    <div class="abs footer">
+      <div class="abs" style="left:1mm">${pageNo}/${pageCount}頁</div>
+      <div class="abs" style="left:34mm">${esc(c.company)}<br>請求書番号: ${no}</div>
+      <div class="abs" style="left:126mm">お支払予定日<br>${inv.due.y}/${pad2(inv.due.m)}/${pad2(inv.due.d)}</div>
+      <div class="vline" style="left:158.5mm"></div>
+      <div class="abs" style="left:159.5mm; top:1.5mm; font-size:9pt">お振込先銀行</div>
+      <div class="vline" style="left:181mm"></div>
+      <div class="abs" style="left:182.5mm">${esc(c.bank1[0])}<br>${esc(c.bank1[1])}</div>
+      <div class="abs" style="left:209mm; top:4.7mm">${esc(c.bank1[2])}</div>
+      <div class="abs" style="left:235.5mm">${esc(c.bank2[0])}<br>${esc(c.bank2[1])}</div>
+      <div class="abs" style="left:261.5mm; top:4.7mm">${esc(c.bank2[2])}</div>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const inv = state.invoice, ok = !!(inv && state.issued && Number.isInteger(state.serial) && state.serial >= 0 && state.serial <= 99);
+  $("invPreview").textContent = state.issued && Number.isInteger(state.serial) ? invoiceNo() : "-";
+  $("printBtn").disabled = !ok;
+  if (!ok) { $("pages").innerHTML = ""; return; }
+  const n = CONFIG.rowsPerPage, pages = [];
+  for (let i = 0; i < inv.lines.length; i += n) pages.push(inv.lines.slice(i, i + n));
+  $("pages").innerHTML = pages.map((ls, i) => pageHtml(inv, ls, i + 1, pages.length)).join("");
+  document.title = "請求書_LIXIL_" + invoiceNo();   // PDF保存時の既定ファイル名
+}
+
+function setMsg(text, cls) { const m = $("msg"); m.textContent = text; m.className = cls || ""; }
+
+/* ===================== 入力処理 ===================== */
+async function loadFile(file) {
+  if (!file) return;
+  state.fileName = file.name; $("fileName").textContent = file.name;
+  try {
+    state.invoice = buildInvoice(await readXlsx(await file.arrayBuffer()));
+    const inv = state.invoice;
+    setMsg(`読込完了: 明細 ${inv.lines.length} 件 ／ 合計請求額(税込) ${yen(inv.total)}` + (inv.warnings.length ? "\n注意: " + inv.warnings.join("\n注意: ") : ""), inv.warnings.length ? "warn" : "");
+  } catch (e) {
+    state.invoice = null;
+    setMsg("エラー: " + e.message, "err");
+  }
+  render();
+}
+
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
+
+function init() {
+  const now = new Date();
+  $("issued").value = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  const last = parseInt(store.get("lastSerial"), 10);
+  $("serial").value = Number.isInteger(last) ? (last + 1) % 100 : "";
+  const readInputs = () => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec($("issued").value);
+    state.issued = m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
+    state.serial = /^\d{1,2}$/.test($("serial").value) ? +$("serial").value : NaN;
+    render();
+  };
+  $("issued").addEventListener("input", readInputs);
+  $("serial").addEventListener("input", readInputs);
+
+  const drop = $("drop"), file = $("file");
+  drop.addEventListener("click", () => file.click());
+  file.addEventListener("change", () => { loadFile(file.files[0]); file.value = ""; });
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); loadFile(e.dataTransfer.files[0]); });
+
+  for (const key of Object.keys(seals)) {
+    seals[key] = store.get(key);
+    $(key).addEventListener("change", e => {
+      const f = e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => { seals[key] = fr.result; store.set(key, fr.result); render(); };
+      fr.readAsDataURL(f);
+    });
+  }
+  document.querySelectorAll("[data-clear]").forEach(b => b.addEventListener("click", () => {
+    const key = b.dataset.clear; seals[key] = null; store.set(key, null); $(key).value = ""; render();
+  }));
+
+  $("printBtn").addEventListener("click", () => { store.set("lastSerial", String(state.serial)); window.print(); });
+  readInputs();
+}
+init();
+</script>
+</body>
+</html>
